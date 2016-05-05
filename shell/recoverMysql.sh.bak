@@ -1,0 +1,27 @@
+#!/bin/bash
+
+TEMP_DIR="/tmp"
+cd $TEMP_DIR
+
+for i in $(find /tmp -name "*.sql.bz2")
+do
+    DATABASE=$(echo $i | awk -F '_' '{print $1"_"$2"_"$3}')
+    BACKUP_DATE=$(echo $i | awk -F '_' '{print $4}')
+
+    DB_FILE=${DATABASE}_${BACKUP_DATE}.sql.bz2
+
+    SQL_FILE_DATE=$(tail -1 ${DATABASE}_${BACKUP_DATE}.sql | awk '{print $5}')
+    SQL_FILE_TIME=$(tail -1 ${DATABASE}_${BACKUP_DATE}.sql | awk '{print $6}')
+
+    bzip2 -d $DB_FILE
+
+    pandora --update -e 'drop database if exists $DATABASE'
+    pandora --update -e 'create database $DATABASE'
+    pandora --update -e '$DATABASE' < /tmp/"$DATABASE"_$BACKUP_DATE.sql
+    rm -f ${DATABASE}.sql
+    for line in $(cat log-bin.index)
+    do
+        mysqlbinlog --start-datetime '${SQL_FILE_DATE} ${SQL_FILE_TIME}' -d ${DATABASE} $line >> ${DATABASE}.sql
+        #pandora --update $DATABSE < ${DATABSE}.sql
+    done
+done

@@ -1,0 +1,65 @@
+#!/usr/bin/env python
+#-*- coding:utf8 -*-
+
+import ssh,state,common,backstage
+from arg import *
+import paramiko
+import os
+import time
+
+def cmd(myssh,cmdstr):
+    status,out,err = myssh.cmd(cmdstr)
+    sys.stdout.write( "[%s]\n%s"%(cmdstr,out) )
+    sys.stdout.flush()
+    if status != 0:
+        raise Exception(err)
+    return out
+
+def stopMysql():
+    try:
+        cmd(recoverIpSsh,"service mysqld stop")
+    except Exception,e1:
+        print "WARNING：停止恢复服务器mysql报错!",str(e1)
+    try:
+        cmd(failurIpSsh,"service mysqld stop")
+    except Exception,e2:
+        print "WARNING：停止故障服务器mysql报错!",str(e2)
+
+def downloadMysql():
+    failurIpSsh.put("%s/../shell/copy_database.sh"%curdir,remote_path="/app")
+    database_list = []
+    backstageIpSsh = ssh.ssh(backstageIp,user="root")
+    cmd(backstageIpSsh,"pandora -e 'use acegi_gcmob;select concat(server_flag,'_',replace(name,'S','')) from server where n_ip = %s and server.status&1=1 and istest = 0 and server.mixflag = 1;' > /tmp/get_database.txt"%failurIp)
+    database_file = file('/tmp/get_database.txt')
+        for line in database_file.readlines():
+            datbase_list.append(line)
+    database_file.close()
+    
+    serverlist = " ".join(database_list)
+    cmd(failurIpSsh,"sh /app/copy_database.sh %s %s"%(serverlist,backup_date))
+    cmd(failurIpSsh,"rsync -av /tmp/*  %s:/tmp"%recoverIp)
+
+def recover():
+    datestr = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    mysqlbackupDir = "/app/opbak/mysqlbackup/" + datestr
+    cmd(recoverIpSsh,"mv %s/* %s/"%(recovermysqldir,mysqlbackupDir))
+    cmd(recoverIpSsh,"mkdir -p %s"%mysqlbackupDir)
+    recoverIpSsh.put("%s/../shell/recoverMysql.sh"%curdir,remote_path="/app")
+    cmd(recoverIpSsh,'sh /app/recoverMysql.sh') 
+def startMysql():
+    cmd(recoverIpSsh,"service mysqld restart")
+def recoverByMysql(failurIptemp,recoverIptemp):
+    global recoverIpSsh,failurIpSsh,mysqldir,failurIp,recoverIp,curdir,recovermysqldir,backstageIp
+    failurIp = failurIptemp
+    recoverIp = recoverIptemp
+    curdir = os.path.abspath(os.path.dirname(__file__))
+    project = state.game
+    backstageIp = state.backstageIp
+    recoverIpSsh = ssh.ssh(recoverIp,user="root")
+    failurIpSsh = ssh.ssh(failurIp,user="root")
+    mysqldir = cmd(failurIpSsh,"grep '^innodb_data_home_dir' /etc/my.cnf | cut -d '=' -f 2|xargs echo").strip()
+    recovermysqldir = cmd(recoverIpSsh,"grep '^innodb_data_home_dir' /etc/my.cnf | cut -d '=' -f 2|xargs echo").strip()
+    stopMysql()
+    downloadMysql()
+    recover()
+    startMysql()

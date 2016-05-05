@@ -1,0 +1,106 @@
+#!/usr/bin/env python
+#-*- coding:utf8 -*-
+import sys,os,commands
+from fabric.api import env, lcd, local, cd, run, put, execute, quiet, hosts, settings, hide
+from bible.config_reader import ConfigReader
+import state,ccthread
+import ssh,state,ccthread,common
+from arg import *
+def null(Str):
+    if Str == None or str(Str).lower().strip() == "none" or str(Str).strip() == "" or str(Str).lower().strip() == "null":
+        return True
+    else:
+        return False
+def execute(sshObj,ip,server,type,game):
+    outStr = ""
+    status,out,err = sshObj.cmd("test -d /app/%s_%s"%(game,server))
+    if status != 0:
+        state.errorResult[server] == "目录不存在"
+    #sshObj.cmd("> /app/%s_%s/backend/logs/start.out"%(game,server))
+    status,out,err = sshObj.cmd("export JAVA_HOME=/usr/local/jdk;export LC_ALL='en_US.UTF-8';export LANG='en_US.UTF-8';sh /app/%s_%s/backend/bin/startup.sh %s"%(game,server,type))
+    if status != 0:
+        state.errorResult[server] = "out:%s\nerr:%s"%(out,err)
+        outStr += "[%s] Out:%s \nErr:%s"%(server,out,err)
+    else:
+        cmd = 'ps x -o stime,cmd|grep -v grep | grep -E "java.*%s_%s/"|awk \'{for(i=1;i<4;i++)printf ("%%s ",$i)}\''%(game,server)
+        status,out,err = sshObj.cmd(cmd)
+        outStr += "[%s] %s" %(server,out)
+    print outStr
+    sys.stdout.flush()
+def upload(backendName,game):
+    print "上传后端包..."
+    sys.stdout.flush()
+    status,out = commands.getstatusoutput("echo sh  /app/opbin/rundeck/online.backend -t %s -g %s"%(backendName,game))
+    print out
+    sys.stdout.flush()
+    if status != 0 :
+        print "ERROR: 上传后端包失败!"
+        sys.exit(1)
+def main(args):
+    game = args.game
+    region = args.language
+    backendName = args.backendName
+    type = args.type
+    if not type:
+       print "ERROR: restartType 必须指定!"
+       sys.exit(1)
+    if backendName:
+       upload(backendName,game)
+    serverlist = [[gameOption("proxy_pay1"),gameOption("proxy_pay1_ip")],[gameOption("proxy_pay2"),gameOption("proxy_pay2_ip")]]
+    state.servers = serverlist
+    state.servers = [["nhmob_trproxy_10001","85.195.72.74"],["a","1.1.1.1"]]
+    state.ignoreErrorHost = True
+    state.threadInterval = 3
+    ccthread.run(execute,type)
+    resultStatus = True
+    if len(state.errorHost) > 0:
+        print "-------------连接失败主机-----------------"
+        print state.errorHost
+        resultStatus = False
+    if len(state.errorResult) > 0:
+        resultStatus = False
+        print "-------------命令执行失败服务器-----------"
+        for i in state.errorResult:
+            print "[%s] Error:%s"%(i,state.errorResult[i])
+        print "-------------重启失败服务器汇总为---------"
+        print getSpecialServerIp(state.servers,state.errorResult.keys())
+    print "----------------汇总-------------------"
+    print "执行服务器总数: %d"%len(state.servers)
+    print "执行失败服务器数: %d" %len(state.errorResult)
+    print "连接失败IP数: %d" %len(state.errorHost)
+    if not resultStatus:
+        raise Exception("重启失败!")
+
+
+def payProxy_Update(parser):
+    """
+    添加参数和参数说明
+    """
+    sub_parser = parser.add_parser("payProxy_Update", help="充值中控更新重启")
+
+    sub_parser.add_argument(
+        "-g",
+        "--game",
+        dest="game",
+        required=True,
+        help="game, eg: gcld"
+    )
+    sub_parser.add_argument(
+        "-l",
+        "--region",
+        dest="language",
+        required=True,
+        help="region, eg: cn, vn"
+    )
+    sub_parser.add_argument(
+        "-v",
+        dest="backendName",
+        help='backend version, eg: nhmob_tw_proxy'
+    )
+
+    sub_parser.add_argument(
+        "-t",
+        dest="type",
+        help='restart,start,stop'
+    )
+    sub_parser.set_defaults(func=main)

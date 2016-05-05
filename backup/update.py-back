@@ -1,0 +1,61 @@
+#!/usr/bin/env python
+#-*- coding:utf8 -*-
+
+import threading,Queue
+import time,json,os,sys
+import ssh
+import ccthread,state
+import logging
+from fabric.api import *
+import Queue
+
+def test(server):
+    import time
+    r = run("ps x | grep -E '/usr/local/jdk/bin/java .*/app/%s_%s/'|grep -v grep"%(game,server))
+@parallel(pool_size=5)
+def stopServer():
+    threadingCount = 5
+    ip = env.host_string
+    ipServers = servers[ip]
+    threads = []
+    run("a=1")
+    runthreadsQueue = Queue.Queue()
+    for server in ipServers:
+        if runthreadsQueue.qsize() > threadingCount:
+            thread1 = runthreadsQueue.get()
+            thread1.join()
+            print "wait .................."
+        thread = threading.Thread(target=test,args=(server,))
+        runthreadsQueue.put(thread)
+        thread.start()
+    for i in range(runthreadsQueue.qsize()):
+        thread1 = runthreadsQueue.get()
+        thread1.join()
+
+@task
+@runs_once
+def update():
+    global game,servers
+    #env.hosts = ["10.6.197.215","203.195.206.17"]
+    game = "gcmob"
+    servers = {}
+    env.user = "astd"
+
+    #s = os.popen("python ../main.py -a serverlist -g gcmob -l cn").read()
+    #gameServers = json.loads(s)
+    gameServers = [["feiliu_119","10.6.197.193"],["feiliu_237","10.6.197.193"],["feiliu_194","10.6.197.193"],["feiliu_250","10.6.197.193"],["feiliu_55","10.6.197.193"],["feiliu_119","10.6.197.193"],["feiliu_237","10.6.197.193"],["feiliu_194","10.6.197.193"],["feiliu_250","10.6.197.193"],["feiliu_119","10.6.197.193"],["feiliu_237","10.6.197.193"],["feiliu_194","10.6.197.193"],["feiliu_250","10.6.197.193"]]
+    #servers = {"10.6.197.215":["feiliu_10001","feiliu_100002"],"203.195.206.17":["qianqi_10001","qianqi_10002"]}
+    servers = {}
+    for row in gameServers:
+        if isinstance(row,list):
+            ip = row[1]
+            gameName = row[0]
+        else:
+            ip = row
+            gameName = row
+        env.hosts.append(ip)
+        if ip not in servers:
+            servers[ip] = []
+        servers[ip].append(gameName)
+    execute(stopServer)
+update()
